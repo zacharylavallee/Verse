@@ -1,0 +1,46 @@
+# .windsurfrules
+────────────────────────────────────────
+## Guiding Principle
+**Keep It Simple** – favor clarity, minimalism, and strict best practices.
+
+## 1 Project Overview
+- Offline-first Bible verse reference & favorites app.
+- Tech stack (all TypeScript):
+  • React Native + Expo (frontend)  
+  • AWS AppSync → Aurora PostgreSQL Serverless v2 (primary resolvers)  
+  • AWS Lambda (edge-case functions in `backend/functions/`)  
+  • AWS Cognito auth via Amplify  
+  • Infrastructure in AWS CDK (TypeScript).  
+- Folder layout: `frontend/`, `backend/`, `infrastructure/`.
+
+## 2 Repository & Package Management
+- **Single Git repo** using **Yarn Berry workspaces** for the three folders.
+- Each workspace deploys independently; CI scopes jobs to the path that changed.
+
+## 3 Strict Coding Conventions
+- `"strict": true` in every `tsconfig.json`; no implicit `any`.
+- ESLint + Prettier shared config, auto-fix in CI (`yarn lint --fix`).
+- Conventional Commits required for PR titles / commit messages.
+
+## 4 CI/CD (GitHub Actions)
+| Workspace  | Mandatory PR checks |
+|------------|--------------------|
+| **frontend** | `yarn lint` · `yarn type-check` · `yarn test` · Expo preview build |
+| **backend**  | `yarn lint` · `yarn type-check` · `yarn test` · GraphQL schema check |
+| **infrastructure** | `yarn lint` · `cdk synth` (+ optional `cdk diff`) |
+After merge to `main`, deploy only the workspace that changed.
+
+## 5 Environments
+CDK stacks: **dev**, **stage**, **prod** (names must not change without approval).
+
+## 6 GraphQL & Data Rules
+- Core IDs (`bookName`, `chapterNumber`, `verseNumber`, `translationId`) are immutable.
+- Prefer AppSync direct SQL to Aurora; use Lambdas only when a resolver needs extra logic.
+
+## 7 Prohibited Actions
+- Do **not** write outside `frontend/`, `backend/`, or `infrastructure/` without explicit user instruction.
+- Do **not** disable strict TS, ESLint, or Prettier.
+- Do **not** bypass the required GitHub Actions checks.
+
+────────────────────────────────────────
+(End of rules)
