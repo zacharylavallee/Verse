@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+
+jobs:
+  # Detect which workspaces have changes
+  detect-changes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changes
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+              - 'package.json'
+              - 'yarn.lock'
+              - '.yarnrc.yml'
+            backend:
+              - 'backend/**'
+              - 'package.json'
+              - 'yarn.lock'
+              - '.yarnrc.yml'
+            infrastructure:
+              - 'infrastructure/**'
+              - 'package.json'
+              - 'yarn.lock'
+              - '.yarnrc.yml'
+    outputs:
+      frontend: ${{ steps.changes.outputs.frontend }}
+      backend: ${{ steps.changes.outputs.backend }}
+      infrastructure: ${{ steps.changes.outputs.infrastructure }}
+
+  # Frontend CI
+  frontend-ci:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend == 'true'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Lint frontend
+        run: yarn workspace @verse/frontend lint
+
+      - name: Type check frontend
+        run: yarn workspace @verse/frontend type-check
+
+      - name: Test frontend
+        run: yarn workspace @verse/frontend test
+
+      - name: Build Expo preview (PR only)
+        if: github.event_name == 'pull_request'
+        run: yarn workspace @verse/frontend expo export --platform web
+
+  # Backend CI
+  backend-ci:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Lint backend
+        run: yarn workspace @verse/backend lint
+
+      - name: Type check backend
+        run: yarn workspace @verse/backend type-check
+
+      - name: Test backend
+        run: yarn workspace @verse/backend test
+
+      - name: GraphQL schema check
+        run: yarn workspace @verse/backend graphql:check
+
+  # Infrastructure CI
+  infrastructure-ci:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.infrastructure == 'true'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Lint infrastructure
+        run: yarn workspace @verse/infrastructure lint
+
+      - name: CDK synth
+        run: yarn workspace @verse/infrastructure cdk synth
+
+      - name: CDK diff (optional)
+        run: yarn workspace @verse/infrastructure cdk diff || true
+        continue-on-error: true
