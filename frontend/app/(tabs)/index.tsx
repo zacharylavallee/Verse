@@ -254,25 +254,134 @@ export default function BibleScreen() {
     
     // Toggle verse selection in the multi-select array
     setSelectedVerses(prevSelectedVerses => {
-      if (prevSelectedVerses.includes(verse)) {
-        // Remove verse if already selected (unhighlight)
-        return prevSelectedVerses.filter(v => v !== verse);
-      } else {
-        // Add verse if not already selected (highlight)
-        return [...prevSelectedVerses, verse];
+      const newSelectedVerses = prevSelectedVerses.includes(verse)
+        ? prevSelectedVerses.filter(v => v !== verse) // Remove verse if already selected
+        : [...prevSelectedVerses, verse]; // Add verse if not already selected
+      
+      // Auto-scroll logic: trigger whenever a verse is selected (not just first selection)
+      const isSelectingNewVerse = !prevSelectedVerses.includes(verse) && newSelectedVerses.includes(verse);
+      
+      if (isSelectingNewVerse && scrollViewRef.current) {
+        // Check if the verse needs to be scrolled into view (top or bottom)
+        const attemptAutoScroll = (attempt = 1) => {
+          if (!scrollViewRef.current) return;
+          
+          const verseIndex = verses.findIndex(v => v.verse === verse);
+          console.log(`Auto-scroll attempt ${attempt} for verse:`, verse, 'at index:', verseIndex);
+          
+          if (verseIndex === -1) return;
+          
+          const scrollView = scrollViewRef.current as any;
+          const approximateVersePosition = verseIndex * 85; // Each verse ~85px
+          const verseHeight = 85; // Approximate height of each verse
+          const bannerHeight = 140; // Footer banner height
+          
+          // Try to get scroll metrics with multiple attempts
+          if (scrollView._scrollMetrics) {
+            const { contentOffset, layoutMeasurement } = scrollView._scrollMetrics;
+            const currentScrollY = contentOffset.y;
+            const viewportHeight = layoutMeasurement.height;
+            
+            // Calculate verse boundaries
+            const verseTop = approximateVersePosition;
+            const verseBottom = approximateVersePosition + verseHeight;
+            
+            // Calculate visible area (accounting for footer banner)
+            const visibleTop = currentScrollY;
+            const visibleBottom = currentScrollY + viewportHeight - bannerHeight;
+            
+            console.log('Visibility check (attempt', attempt, '):', {
+              verseTop,
+              verseBottom,
+              visibleTop,
+              visibleBottom,
+              isAboveView: verseBottom < visibleTop,
+              isBelowView: verseTop > visibleBottom
+            });
+            
+            let shouldScroll = false;
+            let targetScrollY = currentScrollY;
+            
+            // Check if verse is partially or fully not visible
+            if (verseTop < visibleTop || verseBottom > visibleBottom) {
+              shouldScroll = true;
+              
+              // Calculate which edge alignment requires less scrolling
+              const scrollToShowTop = Math.max(0, verseTop); // Align top of verse with top of screen
+              const scrollToShowBottom = Math.max(0, verseBottom - (viewportHeight - bannerHeight)); // Align bottom of verse with bottom of visible area
+              
+              // Choose the scroll position that requires less movement
+              const distanceToShowTop = Math.abs(currentScrollY - scrollToShowTop);
+              const distanceToShowBottom = Math.abs(currentScrollY - scrollToShowBottom);
+              
+              if (distanceToShowTop <= distanceToShowBottom) {
+                targetScrollY = scrollToShowTop;
+                console.log('Verse not fully visible, aligning top to screen edge at:', targetScrollY);
+              } else {
+                targetScrollY = scrollToShowBottom;
+                console.log('Verse not fully visible, aligning bottom to screen edge at:', targetScrollY);
+              }
+            }
+            
+            if (shouldScroll) {
+              console.log('Auto-scrolling to keep entire verse visible, from', currentScrollY, 'to', targetScrollY);
+              scrollViewRef.current.scrollTo({
+                y: targetScrollY,
+                animated: true
+              });
+            } else {
+              console.log('Entire verse is already visible, no scroll needed');
+            }
+          } else {
+            console.log('Scroll metrics not available on attempt', attempt);
+            
+            // If scroll metrics aren't available and we haven't tried enough times, retry
+            if (attempt < 3) {
+              setTimeout(() => attemptAutoScroll(attempt + 1), 50); // Faster retry - 50ms instead of 100ms
+              return;
+            }
+            
+            // Final fallback: Use position-based heuristic
+            const totalVerses = verses.length;
+            const versePercentage = verseIndex / totalVerses;
+            
+            console.log('Using final fallback heuristic:', {
+              verseIndex,
+              totalVerses,
+              versePercentage
+            });
+            
+            // More aggressive fallback - scroll for more verses
+            if (versePercentage > 0.6) {
+              // Bottom 40% of verses - scroll to keep above banner
+              const targetScrollY = Math.max(0, approximateVersePosition - 250);
+              console.log('Fallback: scrolling for bottom verse to:', targetScrollY);
+              scrollViewRef.current.scrollTo({ y: targetScrollY, animated: true });
+            } else if (versePercentage < 0.2) {
+              // Top 20% of verses - scroll to top
+              console.log('Fallback: scrolling for top verse to:', approximateVersePosition);
+              scrollViewRef.current.scrollTo({ y: Math.max(0, approximateVersePosition - 20), animated: true });
+            }
+          }
+        };
+        
+        // Start the auto-scroll attempt after a shorter delay
+        setTimeout(() => attemptAutoScroll(), 100); // Faster initial delay - 100ms instead of 150ms
       }
+      
+      return newSelectedVerses;
     });
     
     // Do NOT update browseState.selectedVerse to prevent screen movement for tap-to-highlight
   };
 
   const handleBack = () => {
-  console.log('handleBack called, current mode:', browseState.mode);
-  
-  // Clear selected verses when navigating away from verses view
-  if (browseState.mode === 'verses') {
-    setSelectedVerses([]);
-  }
+    console.log('handleBack called, current mode:', browseState.mode);
+    
+    // Clear selected verses when navigating away from verses view
+    if (browseState.mode === 'verses') {
+      setSelectedVerses([]);
+    }
   
   if (browseState.mode === 'verses' && browseState.selectedBook && browseState.selectedChapter && browseState.selectedVerse) {
     console.log('Going back from verses with selected verse to verse numbers view');
@@ -493,7 +602,11 @@ export default function BibleScreen() {
           <ScrollView 
             ref={scrollViewRef}
             style={styles.scrollView} 
-            contentContainerStyle={styles.versesContent}
+            contentContainerStyle={[
+              styles.versesContent,
+              // Add bottom padding when footer banner is visible to ensure content can be scrolled above it
+              selectedVerses.length > 0 && { paddingBottom: 140 }
+            ]}
             showsVerticalScrollIndicator={true}
           >
 
