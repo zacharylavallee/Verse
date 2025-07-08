@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Animated } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Animated, Clipboard } from 'react-native';
 import { useBible } from '@/contexts/BibleContext';
 import { loadBibleText, getChapterText, findBookKey, BibleData } from '@/utils/bibleLoader';
 import { BibleBook } from '@/types/bible';
@@ -266,8 +266,6 @@ export default function BibleScreen() {
     // Do NOT update browseState.selectedVerse to prevent screen movement for tap-to-highlight
   };
 
-
-
   const handleBack = () => {
   console.log('handleBack called, current mode:', browseState.mode);
   
@@ -498,77 +496,52 @@ export default function BibleScreen() {
             contentContainerStyle={styles.versesContent}
             showsVerticalScrollIndicator={true}
           >
-            {selectedVerses.length > 0 && (
-              <View style={styles.floatingActionButton}>
-                <TouchableOpacity 
-                  style={styles.saveSelectionButton}
-                  onPress={() => {
-                    // Handle saving the selected verses
-                    console.log('Saving selected verses:', selectedVerses);
-                    
-                    // Create a verse group with the selected verses
-                    if (browseState.selectedBook && browseState.selectedChapter) {
-                      const bookName = browseState.selectedBook.name;
-                      const chapterNum = browseState.selectedChapter;
-                      const verseCount = selectedVerses.length;
-                      
-                      // Show confirmation dialog
-                      if (confirm(`Save ${verseCount} ${verseCount === 1 ? 'verse' : 'verses'} from ${bookName} ${chapterNum} as favorites?`)) {
-                        // Format the selected verses for saving
-                        const verseGroup = {
-                          id: `${Date.now()}`, // Unique ID based on timestamp
-                          bookName,
-                          englishBookName: browseState.selectedBook.englishName || bookName,
-                          chapterNumber: chapterNum,
-                          verses: selectedVerses,
-                          translation: selectedTranslation,
-                          language: selectedLanguage,
-                          dateAdded: new Date().toISOString()
-                        };
-                        
-                        // Here you would save to AsyncStorage or your backend
-                        console.log('Verse group to save:', verseGroup);
-                        
-                        // Show success message
-                        alert(`${verseCount} ${verseCount === 1 ? 'verse' : 'verses'} saved as favorites!`);
-                        
-                        // Clear selection after saving
-                        setSelectedVerses([]);
-                      }
-                    }
-                  }}
-                >
-                  <Text style={styles.saveSelectionText}>
-                    Save {selectedVerses.length} {selectedVerses.length === 1 ? 'verse' : 'verses'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
+
             {verses.length > 0 ? (
-              verses.map((verseData) => (
-                <TouchableOpacity 
-                  key={verseData.verse} 
-                  ref={ref => {
-                    if (ref) {
-                      verseRefs.current[verseData.verse] = ref;
-                    }
-                  }}
-                  onPress={() => handleVerseSelect(verseData.verse)}
-                >
-                  <Animated.View 
-                    style={[
-                      styles.verseContainer, 
-                      selectedVerses.includes(verseData.verse) ? styles.selectedVerseContainer : null,
-                      { transform: [{ scale: verseAnimations.current[verseData.verse] || 1 }] }
-                    ]}
+              verses.map((verseData, index) => {
+                const isSelected = selectedVerses.includes(verseData.verse);
+                const prevVerseSelected = index > 0 && selectedVerses.includes(verses[index - 1].verse);
+                const nextVerseSelected = index < verses.length - 1 && selectedVerses.includes(verses[index + 1].verse);
+                
+                // Determine styling for continuous selection blocks
+                let selectedContainerStyle = null;
+                if (isSelected) {
+                  selectedContainerStyle = {
+                    ...styles.selectedVerseContainer,
+                    // Remove top border radius if previous verse is also selected
+                    borderTopLeftRadius: prevVerseSelected ? 0 : 8,
+                    borderTopRightRadius: prevVerseSelected ? 0 : 8,
+                    // Remove bottom border radius if next verse is also selected
+                    borderBottomLeftRadius: nextVerseSelected ? 0 : 8,
+                    borderBottomRightRadius: nextVerseSelected ? 0 : 8,
+                    // Keep all margins consistent - no position changes
+                  };
+                }
+                
+                return (
+                  <TouchableOpacity 
+                    key={verseData.verse} 
+                    ref={ref => {
+                      if (ref) {
+                        verseRefs.current[verseData.verse] = ref;
+                      }
+                    }}
+                    onPress={() => handleVerseSelect(verseData.verse)}
                   >
-                  <Text style={styles.verseNumber}>{verseData.verse}</Text>
-                  <Text style={[styles.verseText, 
-                    selectedVerses.includes(verseData.verse) ? styles.selectedVerseText : null
-                  ]}>{verseData.text}</Text>
-                  </Animated.View>
-                </TouchableOpacity>
-              ))
+                    <View 
+                      style={[
+                        styles.verseContainer, 
+                        selectedContainerStyle
+                      ]}
+                    >
+                      <Text style={styles.verseNumber}>{verseData.verse}</Text>
+                      <Text style={[styles.verseText, 
+                        selectedVerses.includes(verseData.verse) ? styles.selectedVerseText : null
+                      ]}>{verseData.text}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
             ) : (
               <View style={styles.noVersesContainer}>
                 <Text style={styles.noVersesText}>
@@ -732,7 +705,100 @@ const renderContent = () => {
   }
 };
 
-return renderContent();
+return (
+    <View style={styles.container}>
+      {renderContent()}
+      {selectedVerses.length > 0 && (
+        <View style={styles.actionBanner}>
+          <View style={styles.actionBannerContent}>
+            <Text style={styles.selectedCountText}>
+              {selectedVerses.length} {selectedVerses.length === 1 ? 'verse' : 'verses'} selected
+            </Text>
+            <View style={styles.actionButtons}>
+              <TouchableOpacity 
+                style={styles.favoriteButton}
+                onPress={() => {
+                  // Handle saving the selected verses to favorites
+                  if (browseState.selectedBook && browseState.selectedChapter) {
+                    const bookName = browseState.selectedBook.name;
+                    const chapterNum = browseState.selectedChapter;
+                    const verseCount = selectedVerses.length;
+                    
+                    // Create verse group for saving
+                    const verseGroup = {
+                      id: `${Date.now()}`, // Unique ID based on timestamp
+                      bookName,
+                      englishBookName: browseState.selectedBook.englishName || bookName,
+                      chapterNumber: chapterNum,
+                      verses: selectedVerses.map(verseNum => {
+                        const verseData = verses.find(v => v.verse === verseNum);
+                        return {
+                          number: verseNum,
+                          text: verseData?.text || ''
+                        };
+                      }),
+                      translation: selectedTranslation,
+                      language: selectedLanguage,
+                      dateAdded: new Date().toISOString(),
+                      reference: `${bookName} ${chapterNum}:${selectedVerses.join(', ')}`
+                    };
+                    
+                    // Here you would save to AsyncStorage or your backend
+                    console.log('Saving verse group:', verseGroup);
+                    
+                    // Show success message
+                    alert(`${verseCount} ${verseCount === 1 ? 'verse' : 'verses'} saved to favorites!`);
+                    
+                    // Clear selection after saving
+                    setSelectedVerses([]);
+                  }
+                }}
+              >
+                <Text style={styles.favoriteButtonIcon}>♥</Text>
+                <Text style={styles.favoriteButtonText}>Favorite</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.copyButton}
+                onPress={() => {
+                  // Handle copying selected verses to clipboard
+                  if (browseState.selectedBook && browseState.selectedChapter && selectedVerses.length > 0) {
+                    const bookName = browseState.selectedBook.name;
+                    const chapterNum = browseState.selectedChapter;
+                    
+                    // Format verses for clipboard
+                    const formattedVerses = selectedVerses
+                      .sort((a, b) => a - b) // Sort verse numbers
+                      .map(verseNum => {
+                        const verseData = verses.find(v => v.verse === verseNum);
+                        return `${bookName} ${chapterNum}:${verseNum} - ${verseData?.text || ''}`;
+                      })
+                      .join('\n\n');
+                    
+                    // Add translation info at the end
+                    const clipboardText = `${formattedVerses}\n\n(${selectedTranslation})`;
+                    
+                    // Copy to clipboard
+                    Clipboard.setString(clipboardText);
+                    
+                    // Show success message
+                    const verseCount = selectedVerses.length;
+                    alert(`${verseCount} ${verseCount === 1 ? 'verse' : 'verses'} copied to clipboard!`);
+                    
+                    // Clear selection after copying
+                    setSelectedVerses([]);
+                  }
+                }}
+              >
+                <Text style={styles.copyButtonIcon}>📋</Text>
+                <Text style={styles.copyButtonText}>Copy</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create<any>({
@@ -838,7 +904,7 @@ const styles = StyleSheet.create<any>({
   },
   verseContainer: {
     flexDirection: 'row',
-    marginBottom: 12,
+    marginBottom: 0,
     alignItems: 'flex-start',
   },
   verseNumber: {
@@ -856,6 +922,80 @@ const styles = StyleSheet.create<any>({
     color: '#1a1a1a',
     flex: 1,
     textAlign: 'left',
+  },
+  // Action banner styles
+  actionBanner: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#ffffff',
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    paddingBottom: 20, // Space above tabs
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: -2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  actionBannerContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  selectedCountText: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    gap: 16,
+  },
+  favoriteButton: {
+    backgroundColor: '#ff4757',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    flex: 1,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  favoriteButtonIcon: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  favoriteButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  copyButton: {
+    backgroundColor: '#007AFF',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    flex: 1,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  copyButtonIcon: {
+    fontSize: 16,
+  },
+  copyButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   noVersesContainer: {
     flex: 1,
@@ -897,14 +1037,6 @@ const styles = StyleSheet.create<any>({
     borderTopWidth: 1,
     borderTopColor: '#dee2e6',
   },
-  actionButton: {
-    backgroundColor: '#f8f9fa',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#dee2e6',
-  },
   selectedCount: {
     backgroundColor: '#4a90e2',
     width: 30,
@@ -913,11 +1045,6 @@ const styles = StyleSheet.create<any>({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 10,
-  },
-  selectedCountText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 'bold',
   },
   floatingActionButton: {
     position: 'absolute',
@@ -944,18 +1071,12 @@ const styles = StyleSheet.create<any>({
     fontWeight: '600',
     fontSize: 14,
   },
-  actionButtonText: {
-    fontSize: 16,
-    color: '#007AFF',
-    fontWeight: '500',
-  },
+
   selectedVerseContainer: {
     backgroundColor: '#e6f2ff',
     borderRadius: 8,
-    padding: 8,
-    marginVertical: 4,
   },
   selectedVerseText: {
-    fontWeight: '600',
+    // No additional styling - just use default text weight
   },
 });
